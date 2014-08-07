@@ -8,6 +8,15 @@ var shares = ['80121e68e588ad46c36695f60c894a70a82a6', '0', '80321202023bf1f85ad
 var r = 'd3161558ed9579d2654a87f3a6cc4a14934e36c86ce59323c9ce7f12388c62f8';
 var hash_of_r = hashFunction(r);
 
+SERVERIP = "164.111.225.75";
+SERVERPORT = 25012;
+WEBSERVERIP = "164.111.225.75";
+WEBSERVERPORT = 25006;
+CLIENTIP = "164.111.225.75";
+CLIENTPORT = 25008;
+DEVICEIP = "127.0.0.1";
+DEVICEPORT = 25010;
+
 
 function string2ArrayBuffer(string, callback) {
     var bb = new BlobBuilder();
@@ -74,6 +83,8 @@ function createHexString(arr) {
     return result;
 }
 
+
+
 function hashFunction(str) {
 
 	if (str == "abcdefghijklmno") {
@@ -99,19 +110,29 @@ function hashFunction(str) {
 	return hashRes;
 }
 
- function OPRFK(k, point) {
+ function subOPRF(k, point) {
  	
 	curve = Clipperz.Crypto.ECC.StandardCurves.B283();
 	value = new Clipperz.Crypto.ECC.BinaryField.Value(k, 16);
 	oprfRes = curve.multiply(value, point);
 	
-	//return oprfRes;
-    return oprfEncoded(oprfRes);
+	return  oprfRes;
  }
  
- function oprfEncoded(oprfRes) {
- 	return encodePoint(oprfRes);
- }
+// OPRF = F_k(x) = H(x, H'(x)^k)
+function oprfEncoded(key, point) {
+	return CryptoJS.SHA256(encodePoint(point) + multy(key, point));
+}
+ 
+ 
+// multy(x) = x^k
+function multy(key, point) {
+	curve = Clipperz.Crypto.ECC.StandardCurves.B283();
+	value = new Clipperz.Crypto.ECC.BinaryField.Value(k, 16);
+	multiplier = curve.multiply(value, point);
+
+	return encodePoint(multiplier);
+}
  
  function computeAlpha(password) {
 	 ro = "176016c537c83316470ff3a47140ae383fd32d3d4a37654961e4e5c5b42706b90863f75";
@@ -131,7 +152,7 @@ function decodePoint(pointStr) {
 	return point;
 }
 function encodePoint(point) {
-	pointStr = point.x().toString(16).concat(",",point.y().toString(16));
+	pointStr = point.x().toString(16)+","+point.y().toString(16);
 	return pointStr;
 }
 
@@ -235,20 +256,25 @@ function keyExchange(password) {
 });
 }
 
-function getKeyfromDevice(password) {
+function OPRF(input, IP, Port) {
 	
 	var deviceSocket;
 	var clientSocket;
+	
+	rho = new BigInteger("176016c537c83316470ff3a47140ae383fd32d3d4a37654961e4e5c5b42706b90863f75", 16); //random \rho
+	hashOfX = hashFunction(input);
+	console.log(hashOfX.x().asString(16));
+	alpha = multy(rho, hashOfX);
+	
+
 		
 	// A client
 	chrome.socket.create('udp', null, function(createInfo){
     clientSocket = createInfo.socketId;
 
-    chrome.socket.connect(clientSocket, '127.0.0.1', 25008, function(result){
+    chrome.socket.connect(clientSocket, IP, Port, function(result){
         console.log('chrome.socket.connect: result = ' + result.toString());
     });
-
-	alpha = computeAlpha(password);
 	
     chrome.socket.write(clientSocket, str2ab(alpha), function(writeInfo){
         console.log('writeInfo: ' + writeInfo.bytesWritten + 
@@ -258,7 +284,8 @@ function getKeyfromDevice(password) {
     chrome.socket.read(clientSocket, 1024, function(readInfo){
         console.log('Client: received response: ' + ab2str(readInfo.data), readInfo);
         var beta = ab2str(recvFromInfo.data);
-	    betaPoint = decodePoint(beta); 
+	    betaPoint = decodePoint(beta);
+	    return betaPoint; 
     });
 });
 }
@@ -267,35 +294,38 @@ function getKeyfromDevice(password) {
 chrome.runtime.onMessageExternal.addListener(function(request, sender, sendResponse) {
 	// console.log(request.message1);
 	password = request.message1;
-	hashOfPwd = hashFunction(password);
-	console.log(hashOfPwd.x().asString(16));
-
-	key = "123456789abcdef03456789abcdef012";
-	q =  new BigInteger("38853377844514581418389238136470378132848129621884524445545982633850221" ,16);
-	ro = new BigInteger("176016c537c83316470ff3a47140ae383fd32d3d4a37654961e4e5c5b42706b90863f75", 16);
-	rwd = "176016c537c83316470ff3a47140ae383fd32d3d4a37654961e4e5c5b42706b90863f75";
-	var shares = secrets.share(rwd, n, t); 
-	
+	hashOfX = hashFunction(input);
 
 	
+	key = "123456789abcdef03456789abcdef012"; //just for matching, otherwise not required hre
+	q =  new BigInteger("38853377844514581418389238136470378132848129621884524445545982633850221" ,16); //q
+		 
+	// init: rwd = OPRFK(key, hashOfPwd); random r is secret shared random k_i for each server, each server gets ei xor f_k_i(rwd), k= f_r(0)
+	// rwd = 
+	// var shares = secrets.share(r, n, t);
 	
-	var start = new Date().getTime();
-	var numIter = 10000;
+	beta = OPRF(password, DEVICEIP, DEVICEPORT);
 	
-	for (i = 0; i < numIter; ++i) {
-		// rwd = OPRFK(key, hashOfPwd);
-		// roInverse = ro.modInverse(q);
-		// xorRes = q.xor(ro);
+	roInverse = ro.modInverse(q);
+	rwd_prime = CryptoJS.SHA256(pwd + multi(roInverse, beta));
+	rwd = CryptoJS.SHA256(pwd + multi(key, hashOfPwd));
+	
+	if (rwd == rwd_prime) {
+		console.log("received rwd is correct!");
+	}
+	
+	hashOfRwd = hashFunction(rwd_prime);
+	alpha = multy(rho, hashOfRwd);
+	beta = OPRF(rwd_prime, SERVERIP, SERVERPORT);
+	
+	f_ki_rwd_prime = CryptoJS.SHA256(rwd_prime + multi(roInverse, beta));
+	f_ki_rwd = CryptoJS.SHA256(rwd + multi(key, hashOfRwd));
+	
+	// xorRes = q.xor(ro);
 		// var hash = CryptoJS.SHA256("abcdefghijklmno3885337784451458141838923813647037813284812962188452444554598263385022138853377844514581418389238136470378132848129621884524445545982633850221");
 		// var comb = secrets.combine(shares.slice(1,6));
 
-	}
-	
-	var end = new Date().getTime();
-	var time = (end - start)/numIter;
-	console.log('Execution time: ' + time);
-	
-	
+
 	//initialization(hashOfPwd);
 	//console.log(rwd.x().asString(16));
 	//getKeyfromDevice(password);
