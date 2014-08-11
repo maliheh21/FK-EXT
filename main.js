@@ -8,15 +8,51 @@ var shares = ['80121e68e588ad46c36695f60c894a70a82a6', '0', '80321202023bf1f85ad
 var r = 'd3161558ed9579d2654a87f3a6cc4a14934e36c86ce59323c9ce7f12388c62f8';
 var hash_of_r = hashFunction(r);
 
-SERVERIP = "164.111.225.75";
+SERVERIP = "192.168.1.153";
 SERVERPORT = 25012;
-WEBSERVERIP = "164.111.225.75";
+WEBSERVERIP = "192.168.1.153";
 WEBSERVERPORT = 25006;
-CLIENTIP = "164.111.225.75";
+CLIENTIP = "192.168.1.153";
 CLIENTPORT = 25008;
-DEVICEIP = "127.0.0.1";
+DEVICEIP = "192.168.1.159";
 DEVICEPORT = 25010;
 
+
+var STR_PAD_LEFT = 1;
+var STR_PAD_RIGHT = 2;
+var STR_PAD_BOTH = 3;
+
+function pad(str, len, pad, dir) {
+
+    if (typeof(len) == "undefined") { var len = 0; }
+    if (typeof(pad) == "undefined") { var pad = ' '; }
+    if (typeof(dir) == "undefined") { var dir = STR_PAD_RIGHT; }
+
+    if (len + 1 >= str.length) {
+
+        switch (dir){
+
+            case STR_PAD_LEFT:
+                str = Array(len + 1 - str.length).join(pad) + str;
+            break;
+
+            case STR_PAD_BOTH:
+                var right = Math.ceil((padlen = len - str.length) / 2);
+                var left = padlen - right;
+                str = Array(left+1).join(pad) + str + Array(right+1).join(pad);
+            break;
+
+            default:
+                str = str + Array(len + 1 - str.length).join(pad);
+            break;
+
+        } // switch
+
+    }
+
+    return str;
+
+}
 
 function string2ArrayBuffer(string, callback) {
     var bb = new BlobBuilder();
@@ -24,7 +60,7 @@ function string2ArrayBuffer(string, callback) {
     var f = new FileReader();
     f.onload = function(e) {
         callback(e.target.result);
-    }
+    };
     f.readAsArrayBuffer(bb.getBlob());
 }
 
@@ -35,8 +71,8 @@ function arrayBuffer2String(buf, callback) {
     bb.append(buf);
     var f = new FileReader();
     f.onload = function(e) {
-        callback(e.target.result)
-    }
+        callback(e.target.result);
+    };
     f.readAsText(bb.getBlob());
 }
 
@@ -50,7 +86,7 @@ var str2ab=function(str) {
     bufView[i]=str.charCodeAt(i);
   }
   return buf;
-}
+};
 
 // From https://developer.chrome.com/trunk/apps/app_hardware.html
 var ab2str=function(buf) {
@@ -103,10 +139,19 @@ function hashFunction(str) {
 		x: new Clipperz.Crypto.ECC.BinaryField.Value('00000000060883ADE578F697250191F30EB2F4094732BB667D7D90AEB0C6AB30EC9AC49D96EB54C8', 16),
 		y: new Clipperz.Crypto.ECC.BinaryField.Value('000000000100886D599FEB046E1F19682446D3D2870CB2712B6C4432B0D420443F6CDA67C42F2E2D', 16)
 		});
+	}	
+	else if (str == "d6a71405bdcc0d3b2b26a6e8e6977ba1e55532bb2e54c03df1b35318623d4427") { //r = H(pwd, H'(pwd)^k)
+		hashRes = new Clipperz.Crypto.ECC.BinaryField.Point({
+		x: new Clipperz.Crypto.ECC.BinaryField.Value('060883ADE578F697250191F30EB2F4094732BB667D7D90AEB0C6AB30EC9AC49D96EB54C8', 16),
+		y: new Clipperz.Crypto.ECC.BinaryField.Value('0100886D599FEB046E1F19682446D3D2870CB2712B6C4432B0D420443F6CDA67C42F2E2D', 16)
+		});
 	}
-	// else if (str = "") {
-		// return "1234";
-	// }
+	else {
+		hashRes = new Clipperz.Crypto.ECC.BinaryField.Point({
+		x: new Clipperz.Crypto.ECC.BinaryField.Value('0', 16),
+		y: new Clipperz.Crypto.ECC.BinaryField.Value('0', 16)
+		});	
+	}
 	return hashRes;
 }
 
@@ -120,21 +165,22 @@ function hashFunction(str) {
  }
  
 // OPRF = F_k(x) = H(x, H'(x)^k)
-function oprfEncoded(key, point) {
-	return CryptoJS.SHA256(encodePoint(point) + multy(key, point));
+function oprfEncoded(k, point) {
+	return CryptoJS.SHA256(encodePoint(point) + multy(k, point));
 }
  
  
 // multy(x) = x^k
-function multy(key, point) {
+function multy(k, point) {
+		
 	curve = Clipperz.Crypto.ECC.StandardCurves.B283();
 	value = new Clipperz.Crypto.ECC.BinaryField.Value(k, 16);
-	multiplier = curve.multiply(value, point);
-
+	multiplier = curve.multiply(value, point); 		
 	return encodePoint(multiplier);
 }
- 
- function computeAlpha(password) {
+
+
+function computeAlpha(password) {
 	 ro = "176016c537c83316470ff3a47140ae383fd32d3d4a37654961e4e5c5b42706b90863f75";
 	 hash = hashFunction(password);
 	 alpha = OPRFK(ro, hash);
@@ -142,9 +188,15 @@ function multy(key, point) {
  }
 
 function decodePoint(pointStr) {
-	var splitArray = pointStr.split(',');
+	var splitArray = new Array();
+	splitArray = pointStr.split(',');
 	xBigHex = splitArray[0];
 	yBigHex = splitArray[1];
+	
+	xBigHex = pad(xBigHex, 80, '0', 1);
+	yBigHex = pad(yBigHex, 80, '0', 1);
+
+
 	point = new Clipperz.Crypto.ECC.BinaryField.Point({
 		x: new Clipperz.Crypto.ECC.BinaryField.Value(xBigHex, 16),
 		y: new Clipperz.Crypto.ECC.BinaryField.Value(yBigHex, 16)
@@ -152,7 +204,9 @@ function decodePoint(pointStr) {
 	return point;
 }
 function encodePoint(point) {
-	pointStr = point.x().toString(16)+","+point.y().toString(16);
+	pointStr = point.x().asString(16).concat(',');
+	pointStr = pointStr.concat(point.y().asString(16));
+	console.log(pointStr);
 	return pointStr;
 }
 
@@ -214,15 +268,15 @@ function keyExchange(password) {
 	var clientSocket;
 
 	chrome.socket.create('udp', null, function(createInfo){
-    	serverSocket = createInfo.socketId;
+    	clientSocket = createInfo.socketId;
 
-    chrome.socket.bind(serverSocket, '127.0.0.1', 25008, function(result){
+    chrome.socket.bind(clientSocket, CLIENTIP, CLIENTPORT, function(result){
         console.log('chrome.socket.bind: result = ' + result.toString());
     });
 
     function read()
     {
-        chrome.socket.recvFrom(serverSocket, 25008, function(recvFromInfo){
+        chrome.socket.recvFrom(clientSocket, 25008, function(recvFromInfo){
             console.log('Server: recvFromInfo: ', recvFromInfo.port.toString(), 'Message: ', 
                 ab2str(recvFromInfo.data));  	        	
 
@@ -239,12 +293,13 @@ function keyExchange(password) {
 
 	            var comb = secrets.combine( shares.slice(1,6) );
 	            console.log(comb); 
-                
+                /*
                 chrome.socket.sendTo(serverSocket, 
                     str2ab('Received message from client ' + recvFromInfo.address + 
                     ':' + recvFromInfo.port.toString() + ': ' + 
                     ab2str(recvFromInfo.data)), 
                     recvFromInfo.address, recvFromInfo.port, function(){});
+                    */
                 read();
             }
             else
@@ -261,65 +316,89 @@ function OPRF(input, IP, Port) {
 	var deviceSocket;
 	var clientSocket;
 	
-	rho = new BigInteger("176016c537c83316470ff3a47140ae383fd32d3d4a37654961e4e5c5b42706b90863f75", 16); //random \rho
+	rho = "1e3ea1812eb3ef506abae9d87cf580f37edebb21cd2384032527f2ec5c07d94c483562";
 	hashOfX = hashFunction(input);
-	console.log(hashOfX.x().asString(16));
-	alpha = multy(rho, hashOfX);
+	alpha = multy(rho.toString(16), hashOfX);
 	
+	console.log("alpha in OPRF" + alpha);
 
-		
+	
 	// A client
 	chrome.socket.create('udp', null, function(createInfo){
-    clientSocket = createInfo.socketId;
-
-    chrome.socket.connect(clientSocket, IP, Port, function(result){
-        console.log('chrome.socket.connect: result = ' + result.toString());
-    });
+	    clientSocket = createInfo.socketId;
 	
-    chrome.socket.write(clientSocket, str2ab(alpha), function(writeInfo){
-        console.log('writeInfo: ' + writeInfo.bytesWritten + 
-            'byte(s) written.');
-    });
-
-    chrome.socket.read(clientSocket, 1024, function(readInfo){
-        console.log('Client: received response: ' + ab2str(readInfo.data), readInfo);
-        var beta = ab2str(recvFromInfo.data);
-	    betaPoint = decodePoint(beta);
-	    return betaPoint; 
-    });
-});
+	    chrome.socket.connect(clientSocket, IP, Port, function(result){
+	        console.log('chrome.socket.connect: result = ' + result.toString());
+	    });
+		
+	    chrome.socket.write(clientSocket, str2ab(alpha), function(writeInfo){
+	        console.log('writeInfo: ' + writeInfo.bytesWritten + 
+	            'byte(s) written.');
+	    });
+	    
+	    chrome.socket.read(clientSocket, 1024, function(readInfo){
+	    	//beta = ab2str(readInfo.data);
+	        //cosole.log(beta);
+	        console.log('Client: received response: ' + ab2str(readInfo.data), readInfo);
+		    betaPoint = decodePoint(ab2str(readInfo.data));
+	   	});
+	});
+	return betaPoint; 
 }
 
 
 chrome.runtime.onMessageExternal.addListener(function(request, sender, sendResponse) {
-	// console.log(request.message1);
-	password = request.message1;
-	hashOfX = hashFunction(input);
 
+	password = request.message1;
+	hashOfPwd = hashFunction(password);
+	var beta;
+	var rwd;
+	var rwd_prime;
+
+	console.log("message received from the webserver");
 	
-	key = "123456789abcdef03456789abcdef012"; //just for matching, otherwise not required hre
-	q =  new BigInteger("38853377844514581418389238136470378132848129621884524445545982633850221" ,16); //q
+	keyExchange(password);
+	
 		 
 	// init: rwd = OPRFK(key, hashOfPwd); random r is secret shared random k_i for each server, each server gets ei xor f_k_i(rwd), k= f_r(0)
 	// rwd = 
 	// var shares = secrets.share(r, n, t);
 	
+	// beta = OPRF(password, DEVICEIP, DEVICEPORT);
+    key = new BigInteger("123456789abcdef03456789abcdef012", 16); //just for matching, otherwise not required hre
+	q =  new BigInteger("1fffffffffffffffffffffffffffffffffff7c81ccb307e49c5480b2d82153e77d6d983" ,16); //q
+	rho = new BigInteger("1e3ea1812eb3ef506abae9d87cf580f37edebb21cd2384032527f2ec5c07d94c483562", 16); //random \rho
+	roInverse = rho.modInverse(q); //cdca6fc2c0334d81ec178e7e5c5ca05296c304c13e143c2cd86d2468f8ff121d1c7822
+	console.log(roInverse.toString(16));
 	beta = OPRF(password, DEVICEIP, DEVICEPORT);
-	
-	roInverse = ro.modInverse(q);
-	rwd_prime = CryptoJS.SHA256(pwd + multi(roInverse, beta));
-	rwd = CryptoJS.SHA256(pwd + multi(key, hashOfPwd));
+    console.log(beta.x().asString(16));
+	temp = multy(roInverse.toString(16), beta);
+	rwd_prime = CryptoJS.SHA256(password.concat(temp)).toString();
+	console.log(rwd_prime);
+	temp = multy(key.toString(16), hashOfPwd);
+	rwd = CryptoJS.SHA256(password.concat(temp)).toString();
+	console.log(rwd);
 	
 	if (rwd == rwd_prime) {
 		console.log("received rwd is correct!");
 	}
+	else console.log("received rwd is not correct!");
+	
+	rwd_prime = rwd; //for correct answer.
 	
 	hashOfRwd = hashFunction(rwd_prime);
-	alpha = multy(rho, hashOfRwd);
-	beta = OPRF(rwd_prime, SERVERIP, SERVERPORT);
+	beta = OPRF(rwd_prime, SERVERIP, SERVERPORT);	
+	temp = multy(roInverse.toString(16), beta);
+	f_ki_rwd_prime = CryptoJS.SHA256(rwd_prime.concat(temp)).toString();
+	console.log(f_ki_rwd_prime);
+	temp = multy(key.toString(16), hashOfRwd);
+	f_ki_rwd = CryptoJS.SHA256(rwd.concat(temp)).toString();
+	console.log(f_ki_rwd);
 	
-	f_ki_rwd_prime = CryptoJS.SHA256(rwd_prime + multi(roInverse, beta));
-	f_ki_rwd = CryptoJS.SHA256(rwd + multi(key, hashOfRwd));
+	if (f_ki_rwd == f_ki_rwd_prime) {
+		console.log("received rwd is correct!");
+	}
+	else console.log("received rwd is not correct!");
 	
 	// xorRes = q.xor(ro);
 		// var hash = CryptoJS.SHA256("abcdefghijklmno3885337784451458141838923813647037813284812962188452444554598263385022138853377844514581418389238136470378132848129621884524445545982633850221");
@@ -331,6 +410,7 @@ chrome.runtime.onMessageExternal.addListener(function(request, sender, sendRespo
 	//getKeyfromDevice(password);
 	// keyExchange(password);   
 	// sendResponse({share: shares[1]}); //"Good bye!"
+	sendResponse("Good bye!"); //
 });
 
 
